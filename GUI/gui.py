@@ -92,10 +92,13 @@ class PyOCDExplorer:
         
         self.elf_parser: Optional[ElfVariableParser] = None
         self.session: Optional[pyocd.core.session.Session] = None
-        self.target: Optional[pyocd.core.target.Target] = None
+        self.core: Optional[pyocd.core.coresight_target.CortexM] = None  # добавим self.core (выше вы использовали)
+        
+        self.session = None
+        self.core = None
         
         self._setup_ui()
-        self._load_elf_file()
+        # self._load_elf_file()  # <-- убираем или комментируем
         
         # Привязываем обработчик закрытия окна
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
@@ -105,10 +108,14 @@ class PyOCDExplorer:
         # Верхняя панель с информацией о файле
         top_frame = ttk.Frame(self.root, padding="5")
         top_frame.pack(fill=tk.X)
-        
+
         ttk.Label(top_frame, text="ELF файл:").pack(side=tk.LEFT)
         self.file_label = ttk.Label(top_frame, text="Не выбран", foreground="gray")
         self.file_label.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Кнопка загрузки ELF
+        self.load_elf_btn = ttk.Button(top_frame, text="Загрузить ELF", command=self.load_elf_file)
+        self.load_elf_btn.pack(side=tk.RIGHT, padx=5)
         
         # Панель выбора переменной
         select_frame = ttk.LabelFrame(self.root, text="Выбор переменной", padding="10")
@@ -160,28 +167,33 @@ class PyOCDExplorer:
         else:
             self.connect_to_mcu()
     
-    def _load_elf_file(self):
-        """В текущей версии просто открывает файл из диалога."""
-        # Для простоты используем диалог выбора файла
+    def load_elf_file(self):
+        """Открывает диалог выбора .elf файла и загружает его."""
         from tkinter import filedialog
         elf_path = filedialog.askopenfilename(
             title="Выберите .elf файл прошивки",
             filetypes=[("ELF files", "*.elf"), ("All files", "*.*")]
         )
         if not elf_path:
-            # Если файл не выбран, завершаем работу
-            messagebox.showerror("Ошибка", "Не выбран .elf файл. Программа будет закрыта.")
-            self.root.quit()
-            return
-        
+            return  # Просто выходим, не закрывая программу
+
+        # Если были подключены к МК — отключаемся
+        if self.session is not None:
+            self.disconnect_from_mcu()
+
         try:
             self.elf_parser = ElfVariableParser(elf_path)
             self.file_label.config(text=os.path.basename(elf_path), foreground="black")
             self.refresh_variable_list()
             self.status_var.set(f"Загружен файл: {elf_path}. Найдено {len(self.elf_parser.variables)} переменных.")
+            # Очищаем поле вывода и поле ввода
+            self.value_text.delete(1.0, tk.END)
+            self.write_entry.delete(0, tk.END)
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось загрузить ELF файл:\n{e}")
-            self.root.quit()
+            self.file_label.config(text="Ошибка загрузки", foreground="red")
+            self.elf_parser = None
+            self.variable_combobox['values'] = []
 
     def refresh_variable_list(self):
         """Обновляет выпадающий список переменными из .elf файла."""
@@ -277,6 +289,10 @@ class PyOCDExplorer:
             messagebox.showwarning("Не подключено", "Сначала подключитесь к микроконтроллеру.")
             return
         
+        if self.elf_parser is None:
+            messagebox.showwarning("Нет ELF", "Сначала загрузите .elf файл.")
+            return
+        
         selected = self.variable_combobox.get()
         if not selected:
             return
@@ -342,6 +358,10 @@ class PyOCDExplorer:
             messagebox.showwarning("Не подключено", "Сначала подключитесь к микроконтроллеру.")
             return
 
+        if self.elf_parser is None:
+            messagebox.showwarning("Нет ELF", "Сначала загрузите .elf файл.")
+            return
+        
         selected = self.variable_combobox.get()
         if not selected:
             messagebox.showwarning("Нет переменной", "Выберите переменную из списка.")

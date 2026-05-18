@@ -124,7 +124,7 @@ class PyOCDExplorer:
         self.refresh_btn.grid(row=0, column=2, padx=5, pady=5)
         
         # Кнопка подключения к МК
-        self.connect_btn = ttk.Button(select_frame, text="Подключиться к МК", command=self.connect_to_mcu)
+        self.connect_btn = ttk.Button(select_frame, text="Подключиться к МК", command=self.toggle_connection)
         self.connect_btn.grid(row=1, column=0, columnspan=3, pady=5)
         
         # Панель вывода значения
@@ -153,6 +153,13 @@ class PyOCDExplorer:
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
+    def toggle_connection(self):
+        """Переключает подключение к МК."""
+        if self.session is not None and self.core is not None:
+            self.disconnect_from_mcu()
+        else:
+            self.connect_to_mcu()
+    
     def _load_elf_file(self):
         """В текущей версии просто открывает файл из диалога."""
         # Для простоты используем диалог выбора файла

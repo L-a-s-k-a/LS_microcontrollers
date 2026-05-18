@@ -134,13 +134,6 @@ class PyOCDExplorer:
         # Используем scrolledtext для отображения больших объёмов данных
         self.value_text = scrolledtext.ScrolledText(value_frame, height=15, wrap=tk.WORD)
         self.value_text.pack(fill=tk.BOTH, expand=True)
-        
-        # Панель вывода значения (оставляем как есть)
-        value_frame = ttk.LabelFrame(self.root, text="Значение переменной", padding="10")
-        value_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        self.value_text = scrolledtext.ScrolledText(value_frame, height=15, wrap=tk.WORD)
-        self.value_text.pack(fill=tk.BOTH, expand=True)
 
         # --- НОВАЯ ПАНЕЛЬ ЗАПИСИ ---
         write_frame = ttk.LabelFrame(self.root, text="Запись значения", padding="10")

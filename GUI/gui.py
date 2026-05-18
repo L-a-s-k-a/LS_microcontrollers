@@ -15,6 +15,8 @@ import pyocd
 from pyocd.core.helpers import ConnectHelper
 import logging
 
+import datetime
+
 # Настройка логирования pyocd (можно отключить, если не нужно)
 logging.basicConfig(level=logging.WARNING)
 
@@ -90,6 +92,11 @@ class PyOCDExplorer:
         self.root.title("PyOCD Variable Explorer")
         self.root.geometry("800x600")
         
+        self.auto_read_active = False
+        self.auto_write_active = False
+        self.auto_read_job = None   # для хранения идентификатора after()
+        self.auto_write_job = None
+        
         self.elf_parser: Optional[ElfVariableParser] = None
         self.session: Optional[pyocd.core.session.Session] = None
         self.core: Optional[pyocd.core.coresight_target.CortexM] = None  # добавим self.core (выше вы использовали)
@@ -159,6 +166,21 @@ class PyOCDExplorer:
         self.status_var.set("Готов. Выберите ELF файл.")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Панель автоматического режима
+        auto_frame = ttk.LabelFrame(self.root, text="Автоматический режим", padding="10")
+        auto_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(auto_frame, text="Период (мс):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.period_entry = ttk.Entry(auto_frame, width=10)
+        self.period_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        self.period_entry.insert(0, "1000")  # по умолчанию 1 секунда
+
+        self.auto_read_btn = ttk.Button(auto_frame, text="▶ Старт авточтение", command=self.toggle_auto_read)
+        self.auto_read_btn.grid(row=0, column=2, padx=10, pady=5)
+
+        self.auto_write_btn = ttk.Button(auto_frame, text="▶ Старт автозапись", command=self.toggle_auto_write)
+        self.auto_write_btn.grid(row=0, column=3, padx=10, pady=5)
 
     def toggle_connection(self):
         """Переключает подключение к МК."""
@@ -168,6 +190,8 @@ class PyOCDExplorer:
             self.connect_to_mcu()
     
     def load_elf_file(self):
+        self.stop_auto_read()
+        self.stop_auto_write()
         """Открывает диалог выбора .elf файла и загружает его."""
         from tkinter import filedialog
         elf_path = filedialog.askopenfilename(
@@ -235,7 +259,7 @@ class PyOCDExplorer:
                 target_override='stm32f429xi',
                 options={
                     'auto_unlock': True,
-                    'halt_on_connect': True,
+                    'halt_on_connect': False,
                     'primary_core': 0,
                     'allow_no_cores': True
                 }
@@ -271,19 +295,29 @@ class PyOCDExplorer:
             self.root.after(0, lambda: self.status_var.set("Ошибка подключения."))
 
     def disconnect_from_mcu(self):
+        self.stop_auto_read()
+        self.stop_auto_write()
         if self.core:
             try:
-                self.core.resume()      # Возобновляем выполнение кода
+                self.core.resume()
             except:
                 pass
             self.core = None
         if self.session:
             self.session.close()
             self.session = None
-        self.connect_btn.config(text="Подключиться к МК")
+        # Проверяем, существует ли ещё кнопка
+        try:
+            if self.connect_btn.winfo_exists():
+                self.connect_btn.config(text="Подключиться к МК")
+        except:
+            pass
         self.status_var.set("Отключено от МК.")
-
+        
     def on_variable_selected(self, event=None):
+        # Если активно авточтение, останавливаем его (или можно продолжать с новой переменной)
+        if self.auto_read_active:
+            self.stop_auto_read()
         """Обработчик выбора переменной из списка."""
         if self.session is None or self.target is None:
             messagebox.showwarning("Не подключено", "Сначала подключитесь к микроконтроллеру.")
@@ -309,6 +343,7 @@ class PyOCDExplorer:
         thread.start()
 
     def _read_variable_thread(self, var_info: VariableInfo):
+        print(f"Read thread started for {var_info.name}")
         try:
             # Читаем память через self.core (а не self.target)
             data_bytes = self.core.read_memory_block8(var_info.address, var_info.size)
@@ -326,6 +361,7 @@ class PyOCDExplorer:
             self.root.after(0, lambda: self._update_value_display(output))
             self.root.after(0, lambda: self.status_var.set(f"Готов. Последнее чтение: {var_info.name}"))
         except Exception as e:
+            print(f"Exception in read thread: {e}")
             self.root.after(0, lambda: self._update_value_display(f"Ошибка чтения:\n{str(e)}"))
             self.root.after(0, lambda: self.status_var.set(f"Ошибка при чтении {var_info.name}"))
 
@@ -347,10 +383,70 @@ class PyOCDExplorer:
             # Fallback: просто hex дамп
             return ' '.join(f"{b:02X}" for b in data)
 
+    def toggle_auto_read(self):
+        """Запуск/остановка автоматического чтения."""
+        if self.auto_read_active:
+            self.stop_auto_read()
+        else:
+            self.start_auto_read()
+
+    def start_auto_read(self):
+        if not self._check_ready_for_auto("чтения"):
+            return
+        self.auto_read_active = True
+        self.auto_read_btn.config(text="⏹ Стоп авточтение")
+        self._schedule_auto_read()
+
+    def stop_auto_read(self):
+        print("stop_auto_read called")
+        self.auto_read_active = False
+        if self.auto_read_job:
+            self.root.after_cancel(self.auto_read_job)
+            self.auto_read_job = None
+        # Проверяем, существует ли ещё кнопка
+        try:
+            if self.auto_read_btn.winfo_exists():
+                self.auto_read_btn.config(text="▶ Старт авточтение")
+        except:
+            pass
+
+    def _schedule_auto_read(self):
+        print(f"_schedule_auto_read called, active={self.auto_read_active}")
+        if not self.auto_read_active:
+            print("Auto read not active, exiting schedule")
+            return
+        print("Calling _auto_read_iteration")
+        self._auto_read_iteration()
+        period = self._get_period()
+        print(f"Scheduling next auto read in {period} ms")
+        self.auto_read_job = self.root.after(period, self._schedule_auto_read)
+        # if not self.auto_read_active:
+        #     return
+        # # Выполняем чтение
+        # self.on_variable_selected()   # переиспользуем существующее чтение
+        # # Планируем следующее чтение
+        # try:
+        #     period = int(self.period_entry.get())
+        #     if period < 50:
+        #         period = 50   # ограничим минимумом, чтобы не перегружать
+        # except ValueError:
+        #     period = 1000
+        # self.auto_read_job = self.root.after(period, self._schedule_auto_read)
+
     def _update_value_display(self, text: str):
         """Обновляет текстовое поле с результатом."""
+        # Добавляем временную метку и счётчик
+        if not hasattr(self, '_update_counter'):
+            self._update_counter = 0
+        self._update_counter += 1
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        full_text = f"[{timestamp}] (#{self._update_counter})\n{text}"
+        
+        print(f"Updating display with text length: {len(full_text)}")  # отладка
         self.value_text.delete(1.0, tk.END)
-        self.value_text.insert(tk.END, text)
+        self.value_text.insert(tk.END, full_text)
+        self.value_text.see(tk.END)  # прокрутить вниз
+        self.value_text.update_idletasks()
 
     def write_variable(self):
         """Обработчик кнопки записи."""
@@ -391,7 +487,6 @@ class PyOCDExplorer:
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", "Не удалось преобразовать значение в байты."))
                 self.root.after(0, lambda: self.status_var.set("Ошибка преобразования значения."))
                 return
-
             # Проверяем длину
             if len(data) != var_info.size:
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", f"Размер данных ({len(data)} байт) не совпадает с размером переменной ({var_info.size} байт)."))
@@ -461,7 +556,99 @@ class PyOCDExplorer:
             self.root.after(0, lambda: messagebox.showerror("Ошибка парсинга", f"Не удалось разобрать значение: {e}"))
             return None
     
+    def toggle_auto_write(self):
+        if self.auto_write_active:
+            self.stop_auto_write()
+        else:
+            self.start_auto_write()
+
+    def start_auto_write(self):
+        if not self._check_ready_for_auto("записи"):
+            return
+        # Дополнительно проверим, что поле записи не пустое
+        if not self.write_entry.get().strip():
+            messagebox.showwarning("Нет значения", "Введите значение для автозаписи.")
+            return
+        self.auto_write_active = True
+        self.auto_write_btn.config(text="⏹ Стоп автозапись")
+        self._schedule_auto_write()
+
+    def stop_auto_write(self):
+        self.auto_write_active = False
+        if self.auto_write_job:
+            self.root.after_cancel(self.auto_write_job)
+            self.auto_write_job = None
+        try:
+            if self.auto_write_btn.winfo_exists():
+                self.auto_write_btn.config(text="▶ Старт автозапись")
+        except:
+            pass
+
+    def _auto_read_iteration(self):
+        """Выполняет одно чтение для авточтения (без messagebox)."""
+        print("_auto_read_iteration started")
+        if not self.session or not self.core:
+            print("No session or core")
+            self._update_value_display("❌ Ошибка: нет подключения к МК")
+            self.stop_auto_read()
+            return
+        if not self.elf_parser:
+            print("No elf parser")
+            self._update_value_display("❌ Ошибка: не загружен ELF файл")
+            self.stop_auto_read()
+            return
+        selected = self.variable_combobox.get()
+        if not selected:
+            print("No variable selected")
+            self._update_value_display("❌ Ошибка: не выбрана переменная")
+            self.stop_auto_read()
+            return
+        
+        var_info = self.elf_parser.get_variable_info(selected)
+        if var_info is None:
+            print(f"Variable info not found for {selected}")
+            self._update_value_display(f"❌ Ошибка: информация о переменной '{selected}' не найдена")
+            self.stop_auto_read()
+            return
+        
+        # Чтение в потоке (как и в on_variable_selected)
+        print(f"Auto reading {selected} at addr {hex(var_info.address)}")
+        thread = threading.Thread(target=self._read_variable_thread, args=(var_info,), daemon=True)
+        thread.start()
+        print("Auto read iteration successful")
+    
+    def _schedule_auto_write(self):
+        if not self.auto_read_active:
+            return
+        # Выполняем чтение
+        self._auto_read_iteration()
+        # Планируем следующее
+        period = self._get_period()
+        self.auto_read_job = self.root.after(period, self._schedule_auto_read)
+    
+    def _check_ready_for_auto(self, action):
+        """Проверяет, можно ли запустить автоматический режим."""
+        if self.session is None or self.core is None:
+            messagebox.showwarning("Не подключено", f"Сначала подключитесь к МК для {action}.")
+            return False
+        if self.elf_parser is None:
+            messagebox.showwarning("Нет ELF", f"Сначала загрузите .elf файл для {action}.")
+            return False
+        if not self.variable_combobox.get():
+            messagebox.showwarning("Нет переменной", f"Выберите переменную для {action}.")
+            return False
+        return True
+
+    def _get_period(self):
+        try:
+            period = int(self.period_entry.get())
+            return max(period, 50)   # не меньше 50 мс
+        except ValueError:
+            return 1000
+    
     def _on_closing(self):
+        self.stop_auto_read()
+        self.stop_auto_write()
         """Корректно закрывает соединение перед выходом."""
         self.disconnect_from_mcu()
         self.root.destroy()

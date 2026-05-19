@@ -87,9 +87,12 @@ class ElfVariableParser:
 
     @staticmethod
     def _infer_type(size: int) -> str:
-        if size == 1: return "uint8_t"
-        if size == 2: return "uint16_t"
-        if size == 4: return "uint32_t"
+        if size == 1:
+            return "uint8_t"
+        if size == 2:
+            return "uint16_t"
+        if size == 4:
+            return "uint32_t"
         return f"uint8_t[{size}]"
 
     def get_variable_list(self) -> List[str]:
@@ -102,8 +105,9 @@ class ElfVariableParser:
 class PyOCDExplorer:
     def __init__(self, root):
         self.root = root
-        self.root.title("PyOCD Explorer + Демо-режимы и Графики")
-        self.root.geometry("1500x750")
+        self.root.title("Лабораторный стенд для Embedded Systems - Управление и мониторинг")
+        self.root.geometry("1400x800")
+        self.root.resizable(False, False)          # фиксированный размер окна
 
         # Состояния
         self.auto_read_active = False
@@ -134,7 +138,6 @@ class PyOCDExplorer:
         self.temp_var_info = None
 
         self._setup_ui()
-        self.root.resizable(False, False)   # запретить изменение размеров окна
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     # ---------------------- Построение интерфейса ----------------------
@@ -144,21 +147,23 @@ class PyOCDExplorer:
 
         # Левая панель (основные функции)
         left_frame = ttk.LabelFrame(main_panel, text="Основное управление", padding="10")
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0,5))
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
 
         # Правая панель (демо-режимы и графики)
         right_frame = ttk.LabelFrame(main_panel, text="Демо-режимы и графики", padding="10")
-        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5,0))
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
 
-        # ------------------- Левая панель (без изменений) -------------------
+        # ------------------- Левая панель -------------------
+        # Верхняя строка с ELF
         top_frame = ttk.Frame(left_frame)
-        top_frame.pack(fill=tk.X, pady=(0,10))
+        top_frame.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(top_frame, text="ELF файл:").pack(side=tk.LEFT)
         self.file_label = ttk.Label(top_frame, text="Не выбран", foreground="gray")
-        self.file_label.pack(side=tk.LEFT, padx=(5,0))
+        self.file_label.pack(side=tk.LEFT, padx=(5, 0))
         self.load_elf_btn = ttk.Button(top_frame, text="Загрузить ELF", command=self.load_elf_file)
         self.load_elf_btn.pack(side=tk.RIGHT)
 
+        # Выбор переменной
         select_frame = ttk.LabelFrame(left_frame, text="Выбор переменной", padding="5")
         select_frame.pack(fill=tk.X, pady=5)
         ttk.Label(select_frame, text="Переменная:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
@@ -168,14 +173,21 @@ class PyOCDExplorer:
         self.refresh_btn = ttk.Button(select_frame, text="Обновить список", command=self.refresh_variable_list)
         self.refresh_btn.grid(row=0, column=2, padx=5, pady=2)
 
-        self.connect_btn = ttk.Button(select_frame, text="Подключиться к МК", command=self.toggle_connection)
-        self.connect_btn.grid(row=1, column=0, columnspan=3, pady=5)
+        # Кнопка подключения и индикатор
+        conn_frame = ttk.Frame(select_frame)
+        conn_frame.grid(row=1, column=0, columnspan=3, pady=5)
+        self.connect_btn = ttk.Button(conn_frame, text="Подключиться к МК", command=self.toggle_connection)
+        self.connect_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self.conn_indicator = tk.Label(conn_frame, text="●", font=("Segoe UI", 12), fg="red")
+        self.conn_indicator.pack(side=tk.LEFT)
 
+        # Значение переменной
         value_frame = ttk.LabelFrame(left_frame, text="Значение переменной", padding="5")
         value_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         self.value_text = scrolledtext.ScrolledText(value_frame, height=12, wrap=tk.WORD)
         self.value_text.pack(fill=tk.BOTH, expand=True)
 
+        # Запись значения
         write_frame = ttk.LabelFrame(left_frame, text="Запись значения", padding="5")
         write_frame.pack(fill=tk.X, pady=5)
         ttk.Label(write_frame, text="Новое значение:").pack(side=tk.LEFT, padx=5)
@@ -184,6 +196,7 @@ class PyOCDExplorer:
         self.write_btn = ttk.Button(write_frame, text="Записать", command=self.write_variable)
         self.write_btn.pack(side=tk.LEFT, padx=5)
 
+        # Автоматический режим
         auto_frame = ttk.LabelFrame(left_frame, text="Автоматический режим", padding="5")
         auto_frame.pack(fill=tk.X, pady=5)
         ttk.Label(auto_frame, text="Период (мс):").grid(row=0, column=0, padx=5, pady=2, sticky=tk.W)
@@ -195,71 +208,84 @@ class PyOCDExplorer:
         self.auto_write_btn = ttk.Button(auto_frame, text="▶ Старт автозапись", command=self.toggle_auto_write)
         self.auto_write_btn.grid(row=0, column=3, padx=5, pady=2)
 
+        # Статусная строка (общая)
         self.status_var = tk.StringVar()
         self.status_var.set("Готов. Выберите ELF файл.")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # ------------------- Правая панель (расширенная) -------------------
+        # ------------------- Правая панель -------------------
+        # Блок демо-режимов
         demo_block = ttk.LabelFrame(right_frame, text="Управление демонстрационными режимами", padding="10")
-        demo_block.pack(fill=tk.X, pady=(0,10))
+        demo_block.pack(fill=tk.X, pady=(0, 10))
 
-        # Режим 1: Двигатель + угол
-        row1 = ttk.Frame(demo_block)
-        row1.pack(fill=tk.X, pady=5)
-        self.demo1_btn = ttk.Button(row1, text="Режим 1: Регулятор двигателя", command=lambda: self.start_demo_mode(1))
-        self.demo1_btn.pack(side=tk.LEFT, padx=(0,5))
-        self.demo1_indicator = ttk.Label(row1, text="○ Не активен", foreground="gray")
+        # Режим 1
+        frame1 = ttk.Frame(demo_block)
+        frame1.pack(fill=tk.X, pady=5)
+        self.demo1_btn = ttk.Button(frame1, text="Режим 1: СПР для ДПТ", command=lambda: self.start_demo_mode(1))
+        self.demo1_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.demo1_indicator = ttk.Label(frame1, text="○ Не активен", foreground="gray")
         self.demo1_indicator.pack(side=tk.LEFT, padx=5)
-        # Значок вопроса с подсказкой
-        self.help1_label = ttk.Label(row1, text=" ? ", foreground="blue", cursor="question_arrow")
+        self.help1_label = ttk.Label(frame1, text=" ? ", foreground="blue", cursor="question_arrow")
         self.help1_label.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.help1_label, "Данный режим демонстрирует работу Системы Подчинённого Регулирования применяемую к Двигателю Постоянного Тока для позиционирования вала привода на заданный угол, расположенного на стенде. Также в данной работе принимают участие непосредственно сам микроконтроллер, драйвер для двигателя, датчики тока и энкодер.")
-        # Поле для задания угла
-        ttk.Label(row1, text="Угол (градусы):").pack(side=tk.LEFT, padx=(15,5))
-        self.angle_entry = ttk.Entry(row1, width=8)
+        ToolTip(self.help1_label,
+                "Данный режим демонстрирует работу Системы Подчинённого Регулирования применяемую к Двигателю Постоянного Тока для позиционирования вала привода на заданный угол, расположенного на стенде. Также в данной работе принимают участие непосредственно сам микроконтроллер, драйвер для двигателя, датчики тока и энкодер.")
+
+        frame1b = ttk.Frame(demo_block)
+        frame1b.pack(fill=tk.X, pady=2)
+        ttk.Label(frame1b, text="Угол (градусы):").pack(side=tk.LEFT, padx=5)
+        self.angle_entry = ttk.Entry(frame1b, width=10)
         self.angle_entry.pack(side=tk.LEFT, padx=5)
         self.angle_entry.insert(0, "0")
-        self.set_angle_btn = ttk.Button(row1, text="Установить угол", command=self.set_angle)
+        self.set_angle_btn = ttk.Button(frame1b, text="Установить угол", width=16)
         self.set_angle_btn.pack(side=tk.LEFT, padx=5)
 
-        # Режим 2: Температура
-        row2 = ttk.Frame(demo_block)
-        row2.pack(fill=tk.X, pady=5)
-        self.demo2_btn = ttk.Button(row2, text="Режим 2: Регулятор температуры", command=lambda: self.start_demo_mode(2))
-        self.demo2_btn.pack(side=tk.LEFT, padx=(0,5))
-        self.demo2_indicator = ttk.Label(row2, text="○ Не активен", foreground="gray")
+        # Режим 2
+        frame2 = ttk.Frame(demo_block)
+        frame2.pack(fill=tk.X, pady=5)
+        self.demo2_btn = ttk.Button(frame2, text="Режим 2: Регулятор температуры", command=lambda: self.start_demo_mode(2))
+        self.demo2_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.demo2_indicator = ttk.Label(frame2, text="○ Не активен", foreground="gray")
         self.demo2_indicator.pack(side=tk.LEFT, padx=5)
-        self.help2_label = ttk.Label(row2, text=" ? ", foreground="blue", cursor="question_arrow")
+        self.help2_label = ttk.Label(frame2, text=" ? ", foreground="blue", cursor="question_arrow")
         self.help2_label.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.help2_label, "Данный режим демонстрирует работу релейного регулятора для управления температурой. В данной работе принимают участие нагреватель, вентилятор, релейный модуль и датчик температуры + влажности.")
-        ttk.Label(row2, text="Температура (°C):").pack(side=tk.LEFT, padx=(15,5))
-        self.temp_entry = ttk.Entry(row2, width=8)
+        ToolTip(self.help2_label,
+                "Данный режим демонстрирует работу релейного регулятора для управления температурой. В данной работе принимают участие нагреватель, вентилятор, релейный модуль и датчик температуры + влажности.")
+
+        frame2b = ttk.Frame(demo_block)
+        frame2b.pack(fill=tk.X, pady=2)
+        ttk.Label(frame2b, text="Температура (°C):").pack(side=tk.LEFT, padx=5)
+        self.temp_entry = ttk.Entry(frame2b, width=10)
         self.temp_entry.pack(side=tk.LEFT, padx=5)
         self.temp_entry.insert(0, "25")
-        self.set_temp_btn = ttk.Button(row2, text="Установить температуру", command=self.set_temperature)
+        self.set_temp_btn = ttk.Button(frame2b, text="Установить температуру", width=24)
         self.set_temp_btn.pack(side=tk.LEFT, padx=5)
 
-        # Режим 3: Светодиодная матрица
-        row3 = ttk.Frame(demo_block)
-        row3.pack(fill=tk.X, pady=5)
-        self.demo3_btn = ttk.Button(row3, text="Режим 3: Матрица P10 (бегущая строка)", command=lambda: self.start_demo_mode(3))
-        self.demo3_btn.pack(side=tk.LEFT, padx=(0,5))
-        self.demo3_indicator = ttk.Label(row3, text="○ Не активен", foreground="gray")
+        # Режим 3
+        frame3 = ttk.Frame(demo_block)
+        frame3.pack(fill=tk.X, pady=5)
+        self.demo3_btn = ttk.Button(frame3, text="Режим 3: Матрица P10", command=lambda: self.start_demo_mode(3))
+        self.demo3_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.demo3_indicator = ttk.Label(frame3, text="○ Не активен", foreground="gray")
         self.demo3_indicator.pack(side=tk.LEFT, padx=5)
-        self.help3_label = ttk.Label(row3, text=" ? ", foreground="blue", cursor="question_arrow")
+        self.help3_label = ttk.Label(frame3, text=" ? ", foreground="blue", cursor="question_arrow")
         self.help3_label.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.help3_label, "Данный режим демонстрирует функциональность светодиодной матрицы P10: вывод бегущей строки с заданным текстом.")
-        ttk.Label(row3, text="Текст:").pack(side=tk.LEFT, padx=(15,5))
-        self.marquee_text_entry = ttk.Entry(row3, width=25)
+        ToolTip(self.help3_label,
+                "Данный режим демонстрирует функциональность светодиодной матрицы P10: вывод бегущей строки с заданным текстом.")
+
+        frame3b = ttk.Frame(demo_block)
+        frame3b.pack(fill=tk.X, pady=2)
+        ttk.Label(frame3b, text="Текст бегущей строки:").pack(side=tk.LEFT, padx=5)
+        self.marquee_text_entry = ttk.Entry(frame3b, width=30)
         self.marquee_text_entry.pack(side=tk.LEFT, padx=5)
         self.marquee_text_entry.insert(0, "Hello World!")
-        self.set_marquee_btn = ttk.Button(row3, text="Установить текст", command=self.set_marquee_text)
+        self.set_marquee_btn = ttk.Button(frame3b, text="Установить текст", width=18)
         self.set_marquee_btn.pack(side=tk.LEFT, padx=5)
 
-        # Блок графиков (остаётся без изменений)
+        # Блок графиков
         plot_block = ttk.LabelFrame(right_frame, text="График изменения переменной во времени", padding="10")
         plot_block.pack(fill=tk.BOTH, expand=True)
+
         plot_controls = ttk.Frame(plot_block)
         plot_controls.pack(fill=tk.X, pady=5)
         ttk.Label(plot_controls, text="Переменная:").pack(side=tk.LEFT, padx=5)
@@ -271,6 +297,7 @@ class PyOCDExplorer:
         self.stop_plot_btn.pack(side=tk.LEFT, padx=5)
         self.clear_plot_btn = ttk.Button(plot_controls, text="Очистить", command=self.clear_plot)
         self.clear_plot_btn.pack(side=tk.LEFT, padx=5)
+
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_xlabel("Время (с)")
@@ -319,7 +346,6 @@ class PyOCDExplorer:
                 return
         try:
             angle = int(self.angle_entry.get().strip())
-            # Преобразуем в байты (int32_t, little-endian)
             data = struct.pack('<i', angle)
             if len(data) != self.angle_var_info.size:
                 messagebox.showerror("Ошибка", f"Размер переменной {self.angle_var_info.size} байт, а передано {len(data)}")
@@ -332,7 +358,7 @@ class PyOCDExplorer:
             messagebox.showerror("Ошибка", f"Не удалось записать угол:\n{e}")
 
     def set_temperature(self):
-        """Отправляет значение температуры в переменную task_temperature (int32_t, единицы - десятые доли °C)."""
+        """Отправляет значение температуры в переменную task_temperature (int32_t, единицы - градусы)."""
         if not self._check_connection_and_elf("установки температуры"):
             return
         if self.temp_var_info is None:
@@ -342,8 +368,6 @@ class PyOCDExplorer:
                 return
         try:
             temp_c = float(self.temp_entry.get().strip())
-            # Для передачи в МК можно использовать целые градусы или десятые доли.
-            # По умолчанию передаём как целое число градусов (можно масштабировать)
             temp_int = int(round(temp_c))
             data = struct.pack('<i', temp_int)
             if len(data) != self.temp_var_info.size:
@@ -378,7 +402,7 @@ class PyOCDExplorer:
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось записать текст:\n{e}")
 
-    # ---------------------- Графики (без изменений) ----------------------
+    # ---------------------- Графики ----------------------
     def start_plotting(self):
         if not self._check_connection_and_elf("построения графика"):
             return
@@ -446,9 +470,12 @@ class PyOCDExplorer:
             print(f"Ошибка сбора данных: {e}")
 
     def _bytes_to_number(self, data: bytes, type_str: str) -> float:
-        if type_str == "uint8_t": return data[0]
-        if type_str == "uint16_t": return struct.unpack('<H', data)[0]
-        if type_str == "uint32_t": return struct.unpack('<I', data)[0]
+        if type_str == "uint8_t":
+            return data[0]
+        if type_str == "uint16_t":
+            return struct.unpack('<H', data)[0]
+        if type_str == "uint32_t":
+            return struct.unpack('<I', data)[0]
         return 0.0
 
     def _redraw_plot(self):
@@ -462,7 +489,7 @@ class PyOCDExplorer:
         self.ax.grid(True)
         self.canvas.draw()
 
-    # ---------------------- Основные функции (ELF, подключение, чтение/запись) ----------------------
+    # ---------------------- Основные функции ----------------------
     def _check_connection_and_elf(self, action: str) -> bool:
         if self.session is None or self.core is None:
             messagebox.showwarning("Не подключено", f"Для {action} подключитесь к МК.")
@@ -491,7 +518,6 @@ class PyOCDExplorer:
             if var_list:
                 self.plot_var_combobox.current(0)
 
-            # Обновляем информацию о переменных для демо-режимов
             self.demo_var_info = self.elf_parser.get_variable_info(self.demo_var_name)
             self.angle_var_info = self.elf_parser.get_variable_info(self.angle_var_name)
             self.temp_var_info = self.elf_parser.get_variable_info(self.temp_var_name)
@@ -549,7 +575,8 @@ class PyOCDExplorer:
             self.core.read_memory_block8(0x20000000, 1)  # проверка доступа
             self.root.after(0, lambda: self.connect_btn.config(text="Отключиться от МК"))
             self.root.after(0, lambda: self.status_var.set("Подключено."))
-            # Если ELF уже загружен, обновим информацию о переменных
+            self.root.after(0, lambda: self.conn_indicator.config(fg="green"))
+
             if self.elf_parser:
                 self.demo_var_info = self.elf_parser.get_variable_info(self.demo_var_name)
                 self.angle_var_info = self.elf_parser.get_variable_info(self.angle_var_name)
@@ -574,6 +601,7 @@ class PyOCDExplorer:
             self.session = None
         self.connect_btn.config(text="Подключиться к МК")
         self.status_var.set("Отключено.")
+        self.conn_indicator.config(fg="red")
         self._update_demo_indicator(0)
 
     def on_variable_selected(self, event=None):
@@ -597,16 +625,21 @@ class PyOCDExplorer:
             data_bytes = self.core.read_memory_block8(var_info.address, var_info.size)
             data = bytes(data_bytes)
             value_str = self._interpret_value(data, var_info.type_str, var_info.size)
-            output = f"Переменная: {var_info.name}\nТип: {var_info.type_str}\nАдрес: 0x{var_info.address:08X}\nРазмер: {var_info.size}\nHEX: {data.hex().upper()}\n\nЗначение:\n{value_str}"
+            output = (f"Переменная: {var_info.name}\nТип: {var_info.type_str}\n"
+                      f"Адрес: 0x{var_info.address:08X}\nРазмер: {var_info.size}\n"
+                      f"HEX: {data.hex().upper()}\n\nЗначение:\n{value_str}")
             self.root.after(0, lambda: self._update_value_display(output))
             self.root.after(0, lambda: self.status_var.set(f"Готово: {var_info.name}"))
         except Exception as e:
             self.root.after(0, lambda: self._update_value_display(f"Ошибка чтения:\n{e}"))
 
     def _interpret_value(self, data: bytes, type_str: str, size: int) -> str:
-        if type_str == "uint8_t": return str(data[0])
-        if type_str == "uint16_t": return str(struct.unpack('<H', data)[0])
-        if type_str == "uint32_t": return str(struct.unpack('<I', data)[0])
+        if type_str == "uint8_t":
+            return str(data[0])
+        if type_str == "uint16_t":
+            return str(struct.unpack('<H', data)[0])
+        if type_str == "uint32_t":
+            return str(struct.unpack('<I', data)[0])
         if type_str.startswith("uint8_t["):
             hex_view = ' '.join(f"{b:02X}" for b in data)
             ascii_view = ''.join(chr(b) if 32 <= b < 127 else '.' for b in data)
@@ -672,7 +705,7 @@ class PyOCDExplorer:
             self.root.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось разобрать значение: {e}"))
             return None
 
-    # ---------------------- Автоматические режимы (без изменений) ----------------------
+    # ---------------------- Автоматические режимы ----------------------
     def toggle_auto_read(self):
         if self.auto_read_active:
             self.stop_auto_read()

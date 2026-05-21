@@ -106,7 +106,7 @@ class PyOCDExplorer:
     def __init__(self, root):
         self.root = root
         self.root.title("Лабораторный стенд для Embedded Systems - Управление и мониторинг")
-        self.root.geometry("1400x800")
+        self.root.geometry("1400x750")
         self.root.resizable(False, False)          # фиксированный размер окна
 
         # Состояния
@@ -264,7 +264,7 @@ class PyOCDExplorer:
         # Режим 3
         frame3 = ttk.Frame(demo_block)
         frame3.pack(fill=tk.X, pady=5)
-        self.demo3_btn = ttk.Button(frame3, text="Режим 3: Матрица P10", command=lambda: self.start_demo_mode(3))
+        self.demo3_btn = ttk.Button(frame3, text="Режим 3: Светодиодная матрица", command=lambda: self.start_demo_mode(3))
         self.demo3_btn.pack(side=tk.LEFT, padx=(0, 5))
         self.demo3_indicator = ttk.Label(frame3, text="○ Не активен", foreground="gray")
         self.demo3_indicator.pack(side=tk.LEFT, padx=5)

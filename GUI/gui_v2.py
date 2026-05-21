@@ -563,7 +563,10 @@ class PyOCDExplorer:
             session = ConnectHelper.session_with_chosen_probe(
                 unique_id=probes[0].unique_id,
                 target_override='stm32f429xi',
-                options={'auto_unlock': True, 'halt_on_connect': False}
+                options={'auto_unlock': True, 
+                         'halt_on_connect': False, 
+                         'primary_core': 0,
+                         'allow_no_cores': True}
             )
             if session is None:
                 self.root.after(0, lambda: messagebox.showerror("Ошибка", "Не удалось создать сессию."))
